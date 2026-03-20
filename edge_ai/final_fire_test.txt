@@ -1,0 +1,8 @@
+﻿Loading 'best_fire.pt' Hugging Face model...
+==================================================
+Scanning local generated image for 'fireorsmoke'...
+==================================================
+
+[OUTPUT] Identified Target: '' (Confidence: 0.00)
+
+[SAFE] The model evaluated the image but confidence was practically zero.

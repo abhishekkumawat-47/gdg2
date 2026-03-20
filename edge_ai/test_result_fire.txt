@@ -1,0 +1,8 @@
+﻿Loading YOLOv8 ML Model from 'best_fire.pt'...
+WARNING best_fire.pt appears to require 'dill', which is not in Ultralytics requirements.
+AutoInstall will run now for 'dill' but this feature will be removed in the future.
+Recommend fixes are to train a new model using the latest 'ultralytics' package or to run a command with an official Ultralytics model, i.e. 'yolo predict model=yolo26n.pt'
+[31m[1mrequirements:[0m Ultralytics requirement ['dill'] not found, attempting AutoUpdate...
+WARNING [31m[1mrequirements:[0m  AutoUpdate skipped (offline)
+Failed to load model 'best_fire.pt': No module named 'dill'
+Please ensure the .pt file is inside the edge_ai directory!

@@ -1,0 +1,3 @@
+﻿Scanning for fireorsmoke...
+Maximum confidence seen across all frames: 0.00
+Absolutely zero detections were made by the model!

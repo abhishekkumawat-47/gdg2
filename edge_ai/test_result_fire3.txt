@@ -1,0 +1,7 @@
+﻿Loading YOLOv8 ML Model from 'best_fire.pt'...
+Found 1 video clips to batch test.
+
+============================================================
+[20260319-1959-00.1738062.mp4] Analyzing video clip...
+============================================================
+ -> [SAFE] No anomalies detected in 20260319-1959-00.1738062.mp4.

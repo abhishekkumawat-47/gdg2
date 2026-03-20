@@ -1,0 +1,20 @@
+﻿Downloading test image from https://ultralytics.com/images/zidane.jpg...
+Loading YOLOv8 nano model...
+Running inference on test_image.jpg...
+----------------------------------------
+OBJECTS DETECTED BY YOLOv8:
+----------------------------------------
+ -> Found 'person' [Confidence: 0.84]
+ -> Found 'person' [Confidence: 0.82]
+ -> Found 'tie' [Confidence: 0.29]
+----------------------------------------
+DISPATCHING PAYLOAD TO FASTAPI BACKEND:
+{
+  "camera_id": "test_script_01",
+  "anomaly_type": "Person/Intrusion Detected",
+  "confidence": 0.84,
+  "timestamp": "2026-03-19T19:53:19.402570Z"
+}
+...
+Result HTTP Status Code : 200
+Result JSON Response    : {'status': 'Event received, saved, and queued into Kafka'}
