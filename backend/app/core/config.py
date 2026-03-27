@@ -1,6 +1,7 @@
 import os
 from pydantic_settings import BaseSettings
 
+
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Smart Building Safety Platform"
     VERSION: str = "1.0.0"
@@ -17,6 +18,15 @@ class Settings(BaseSettings):
     NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "secretpassword")
+
+    # Twilio SMS Config
+    TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    TWILIO_FROM_NUMBER: str = os.getenv("TWILIO_FROM_NUMBER", "")
+
+    # Frontend + Local Dev Config
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    ENABLE_INFRA_ON_STARTUP: bool = os.getenv("ENABLE_INFRA_ON_STARTUP", "false").lower() == "true"
 
     class Config:
         env_file = ".env"

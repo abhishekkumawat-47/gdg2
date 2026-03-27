@@ -7,3 +7,4 @@ websockets
 aiokafka
 neo4j
 redis
+twilio
