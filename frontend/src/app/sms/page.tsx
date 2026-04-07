@@ -1,403 +1,280 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { Clock3, Filter, MessageSquareText, Rows3, Send, Timer, View } from "lucide-react";
+import { Select } from "@/components/ui/select";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import {
-  startSendingSMS,
-  updateSMSProgress,
-  finishSendingSMS,
-  clearSMSLogs,
-  SMSTarget,
-  SMSPriority,
-  SMSStatus,
-  SMSLog,
-} from "@/store/slices/smsSlice";
-import {
-  Send,
-  MessageSquare,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  AlertTriangle,
-  Trash2,
-  Users,
-  Building2,
-  Shield,
-  Wrench,
-  UserCheck,
-  ChevronDown,
-  RefreshCw,
-} from "lucide-react";
+import { finishSendingSMS, startSendingSMS, type SMSLog as BroadcastLog } from "@/store/slices/smsSlice";
+import { broadcastSMS, parsePhoneList } from "@/lib/smsApi";
 import { cn } from "@/lib/utils";
 
-const TARGET_OPTIONS: { value: SMSTarget; label: string; count: number; icon: React.ReactNode; color: string }[] = [
-  { value: "all",         label: "Everyone",       count: 242, icon: <Users size={16} />,      color: "blue" },
-  { value: "floor-1",     label: "Floor 1",         count: 78,  icon: <Building2 size={16} />,  color: "indigo" },
-  { value: "floor-2",     label: "Floor 2",         count: 84,  icon: <Building2 size={16} />,  color: "indigo" },
-  { value: "floor-3",     label: "Floor 3",         count: 64,  icon: <Building2 size={16} />,  color: "indigo" },
-  { value: "security",    label: "Security Team",   count: 15,  icon: <Shield size={16} />,     color: "orange" },
-  { value: "staff",       label: "Staff Only",      count: 38,  icon: <UserCheck size={16} />,  color: "green" },
-  { value: "maintenance", label: "Maintenance",     count: 12,  icon: <Wrench size={16} />,     color: "yellow" },
-];
+type LogStatus = "all" | BroadcastLog["status"];
+type AudienceTarget = "all" | "floor-3" | "security" | "maintenance" | "custom";
 
-const MESSAGE_TEMPLATES = [
-  { label: "Fire Alert",      text: "🔴 FIRE ALERT — Floor 3, Room 305. Evacuate immediately via Staircase B. Do not use elevators." },
-  { label: "Evacuation",      text: "⚠️ EVACUATION ORDER — Please proceed calmly to the nearest exit. Follow staff instructions." },
-  { label: "All Clear",       text: "✅ ALL CLEAR — The emergency has been resolved. It is safe to return to your normal activities." },
-  { label: "Hold in Place",   text: "🔒 SHELTER IN PLACE — An external threat has been reported. Lock doors and stay away from windows." },
-  { label: "Staff Drill",     text: "📋 DRILL NOTICE — A scheduled emergency drill will begin in 5 minutes. Please cooperate with staff." },
-];
+const deliveryClass: Record<BroadcastLog["status"], string> = {
+  queued: "bg-amber-50 text-amber-700",
+  sending: "bg-blue-50 text-blue-700",
+  sent: "bg-emerald-50 text-emerald-700",
+  partial: "bg-gray-100 text-gray-700",
+  failed: "bg-gray-50 text-gray-500",
+};
 
-const PRIORITY_OPTIONS: { value: SMSPriority; label: string; color: string; description: string }[] = [
-  { value: "normal",   label: "Normal",   color: "gray",   description: "Standard notification" },
-  { value: "urgent",   label: "Urgent",   color: "amber",  description: "Requires immediate attention" },
-  { value: "critical", label: "Critical", color: "red",    description: "Life-safety priority" },
-];
+const audienceRecipients: Record<Exclude<AudienceTarget, "custom">, string[]> = {
+  all: ["+15551230001", "+15551230002", "+15551230003", "+15551230004"],
+  "floor-3": ["+15551230001", "+15551230002"],
+  security: ["+15559870001", "+15559870002"],
+  maintenance: ["+15557650001", "+15557650002"],
+};
 
-function StatusBadge({ status }: { status: SMSStatus }) {
-  const config = {
-    queued:   { icon: <Clock size={11} />,         label: "Queued",   cls: "bg-gray-100 text-gray-600 border-gray-200" },
-    sending:  { icon: <RefreshCw size={11} className="animate-spin" />, label: "Sending", cls: "bg-blue-50 text-blue-600 border-blue-200" },
-    sent:     { icon: <CheckCircle2 size={11} />,   label: "Delivered", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-    partial:  { icon: <AlertTriangle size={11} />,  label: "Partial",  cls: "bg-amber-50 text-amber-700 border-amber-200" },
-    failed:   { icon: <XCircle size={11} />,         label: "Failed",   cls: "bg-red-50 text-red-700 border-red-200" },
-  }[status];
-
-  return (
-    <div className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold uppercase tracking-wider", config.cls)}>
-      {config.icon}
-      {config.label}
-    </div>
-  );
-}
+const PAGE_SIZE = 4;
 
 export default function SMSPage() {
   const dispatch = useAppDispatch();
-  const { logs, isSending, totalSent, totalFailed } = useAppSelector((s) => s.sms);
-  const { isEmergencySimulated } = useAppSelector((s) => s.system);
+  const { logs, isSending } = useAppSelector((state) => state.sms);
+  const currentUser = useAppSelector((state) => state.auth.profile);
+  const [mode, setMode] = useState<"table" | "timeline">("table");
+  const [status, setStatus] = useState<LogStatus>("all");
+  const [page, setPage] = useState(1);
+  const [target, setTarget] = useState<AudienceTarget>("all");
+  const [message, setMessage] = useState("FIRE ALERT: Floor 3 Room 305. Evacuate via Staircase B.");
+  const [recipients, setRecipients] = useState(audienceRecipients.all.join(", "));
+  const [error, setError] = useState<string | null>(null);
 
-  const [target, setTarget] = useState<SMSTarget>("all");
-  const [message, setMessage] = useState(
-    isEmergencySimulated
-      ? "🔴 FIRE ALERT — Floor 3, Room 305. Evacuate immediately via Staircase B. Do not use elevators."
-      : ""
+  const audienceOptions = useMemo(
+    () => [
+      { label: "All occupants", value: "all" },
+      { label: "Floor 3", value: "floor-3" },
+      { label: "Security team", value: "security" },
+      { label: "Maintenance", value: "maintenance" },
+      { label: "Custom number list", value: "custom" },
+    ],
+    []
   );
-  const [priority, setPriority] = useState<SMSPriority>("normal");
-  const [filterStatus, setFilterStatus] = useState<SMSStatus | "all">("all");
 
-  const selectedTarget = TARGET_OPTIONS.find((t) => t.value === target)!;
+  const statusOptions = useMemo(
+    () => [
+      { label: "All delivery", value: "all" },
+      { label: "Queued", value: "queued" },
+      { label: "Sending", value: "sending" },
+      { label: "Sent", value: "sent" },
+      { label: "Partial", value: "partial" },
+      { label: "Failed", value: "failed" },
+    ],
+    []
+  );
 
-  const handleSend = useCallback(() => {
-    if (!message.trim() || isSending) return;
+  const selectedRecipients = useMemo(
+    () => (target === "custom" ? parsePhoneList(recipients) : audienceRecipients[target as Exclude<AudienceTarget, "custom">]),
+    [recipients, target]
+  );
 
-    const id = Date.now().toString();
-    const recipientCount = selectedTarget.count;
+  const filtered = useMemo(() => logs.filter((item) => status === "all" || item.status === status), [logs, status]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
 
-    dispatch(startSendingSMS({
-      id,
-      message,
-      target,
-      targetLabel: selectedTarget.label,
-      recipientCount,
-      priority,
-      sentBy: "Admin",
-    }));
+  const data = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, safePage]);
 
-    // Simulate progressive delivery
-    let delivered = 0;
-    const chunk = Math.ceil(recipientCount / 4);
+  const handleBroadcast = useCallback(async () => {
+    const trimmedMessage = message.trim();
+    const targetList = target === "custom" ? parsePhoneList(recipients) : audienceRecipients[target as Exclude<AudienceTarget, "custom">];
 
-    const interval = setInterval(() => {
-      delivered = Math.min(delivered + chunk, recipientCount);
-      const failed = Math.floor(Math.random() * 3); // 0-2 failures
-      dispatch(updateSMSProgress({ id, successCount: delivered - failed, failedCount: failed }));
+    if (!trimmedMessage) {
+      setError("Message is required.");
+      return;
+    }
 
-      if (delivered >= recipientCount) {
-        clearInterval(interval);
-        const finalFailed = priority === "critical" ? 0 : Math.floor(Math.random() * 3);
-        setTimeout(() => {
-          dispatch(finishSendingSMS({ id, successCount: recipientCount - finalFailed, failedCount: finalFailed }));
-          setMessage("");
-        }, 500);
+    if (targetList.length === 0) {
+      setError("Add at least one phone number in E.164 format.");
+      return;
+    }
+
+    setError(null);
+    const messageId = `SMS-${Date.now()}`;
+    const targetLabel = audienceOptions.find((item) => item.value === target)?.label ?? "Audience";
+
+    dispatch(
+      startSendingSMS({
+        id: messageId,
+        message: trimmedMessage,
+        target: target === "custom" ? "custom" : target,
+        targetLabel,
+        recipientCount: targetList.length,
+        priority: "critical",
+        sentBy: currentUser?.fullName ?? currentUser?.email ?? "Operator",
+      })
+    );
+
+    try {
+      const response = await broadcastSMS({ users: targetList, message: trimmedMessage });
+      dispatch(
+        finishSendingSMS({
+          id: messageId,
+          successCount: response.summary.sent,
+          failedCount: response.summary.failed,
+        })
+      );
+
+      if (target === "custom") {
+        setRecipients("");
       }
-    }, 600);
-  }, [message, isSending, target, priority, selectedTarget, dispatch]);
-
-  const filteredLogs = filterStatus === "all" ? logs : logs.filter((l) => l.status === filterStatus);
+      setMessage("");
+    } catch (sendError) {
+      dispatch(finishSendingSMS({ id: messageId, successCount: 0, failedCount: targetList.length }));
+      setError(sendError instanceof Error ? sendError.message : "Failed to send SMS broadcast.");
+    }
+  }, [audienceOptions, currentUser?.email, currentUser?.fullName, dispatch, message, recipients, target]);
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-blue-600 mb-1">
-            <MessageSquare size={15} />
-            <span className="text-[10px] font-bold uppercase tracking-widest">Communications / SMS</span>
+    <div className="mx-auto max-w-[1320px] space-y-5 pb-20">
+      <section className="surface-card p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Communications</p>
+            <h1 className="mt-1 text-2xl font-semibold text-gray-900">Broadcast Messaging</h1>
+            <p className="mt-2 text-sm text-gray-600">Clear, user-friendly broadcast controls with delivery visibility.</p>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">SMS Broadcast Center</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Send targeted alerts to specific floors, roles, or everyone.</p>
-        </div>
-        <div className="flex items-center gap-3 text-right">
-          <div className="text-xs text-gray-500">
-            <div className="font-bold text-lg text-emerald-600">{totalSent}</div>
-            <div className="text-[10px] uppercase tracking-wider">Total Sent</div>
-          </div>
-          <div className="h-8 w-px bg-gray-200" />
-          <div className="text-xs text-gray-500">
-            <div className="font-bold text-lg text-red-500">{totalFailed}</div>
-            <div className="text-[10px] uppercase tracking-wider">Failed</div>
-          </div>
-          <div className="h-8 w-px bg-gray-200" />
-          <div className="text-xs text-gray-500">
-            <div className="font-bold text-lg text-gray-700">{logs.length}</div>
-            <div className="text-[10px] uppercase tracking-wider">Broadcasts</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Composer */}
-        <div className="lg:col-span-1 card-premium p-6 flex flex-col gap-5">
-          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-            <Send size={15} className="text-blue-600" />
-            Compose Broadcast
-          </h2>
-
-          {/* Target Selector */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Target Audience</label>
-            <div className="grid grid-cols-1 gap-1.5">
-              {TARGET_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setTarget(opt.value)}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-all cursor-pointer",
-                    target === opt.value
-                      ? "bg-blue-50 border-blue-300 text-blue-700"
-                      : "bg-white border-gray-100 text-gray-600 hover:border-gray-200 hover:bg-gray-50"
-                  )}
-                >
-                  <div className={cn(
-                    "shrink-0",
-                    target === opt.value ? "text-blue-600" : "text-gray-400"
-                  )}>
-                    {opt.icon}
-                  </div>
-                  <span className="flex-1 text-sm font-semibold">{opt.label}</span>
-                  <span className="text-xs font-bold text-gray-400">{opt.count}</span>
-                  {target === opt.value && (
-                    <div className="w-2 h-2 rounded-full bg-blue-600" />
-                  )}
-                </button>
-              ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-gray-300 p-1">
+              <button onClick={() => setMode("table")} className={cn("inline-flex h-8 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-semibold", mode === "table" ? "bg-gray-900 text-white" : "text-gray-700")}> <Rows3 size={13} /> Table</button>
+              <button onClick={() => setMode("timeline")} className={cn("inline-flex h-8 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-semibold", mode === "timeline" ? "bg-gray-900 text-white" : "text-gray-700")}> <View size={13} /> Timeline</button>
             </div>
           </div>
+        </div>
+      </section>
 
-          {/* Priority */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Priority Level</label>
-            <div className="flex gap-2">
-              {PRIORITY_OPTIONS.map((p) => (
-                <button
-                  key={p.value}
-                  onClick={() => setPriority(p.value)}
-                  className={cn(
-                    "flex-1 py-2 px-3 rounded-lg border text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer",
-                    priority === p.value
-                      ? p.value === "critical" ? "bg-red-600 border-red-600 text-white"
-                        : p.value === "urgent" ? "bg-amber-500 border-amber-500 text-white"
-                        : "bg-gray-800 border-gray-800 text-white"
-                      : "bg-white border-gray-100 text-gray-500 hover:border-gray-200"
-                  )}
-                >
-                  {p.label}
-                </button>
-              ))}
+      <section className="grid gap-4 xl:grid-cols-12">
+        <article className="surface-card p-4 xl:col-span-5">
+          <h2 className="text-sm font-semibold text-gray-900">Send Broadcast Message</h2>
+          <div className="mt-3 space-y-3">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-gray-500">Audience</label>
+              <Select options={audienceOptions} value={target} onChange={(value) => setTarget(value as AudienceTarget)} className="mt-1 w-full" />
             </div>
-          </div>
 
-          {/* Templates */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Quick Templates</label>
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-gray-500">Message</label>
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                className="mt-1 min-h-[120px] w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
+                maxLength={240}
+              />
+              <p className="mt-1 text-xs text-gray-500">{message.length} / 240</p>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-gray-500">Recipient Numbers</label>
+              <textarea
+                value={target === "custom" ? recipients : audienceRecipients[target as Exclude<AudienceTarget, "custom">].join(", ")}
+                onChange={(e) => setRecipients(e.target.value)}
+                className="mt-1 min-h-[92px] w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
+                placeholder="+15551234567, +15557654321"
+                disabled={target !== "custom" || isSending}
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                {target === "custom" ? "Paste comma or newline separated E.164 numbers." : `${selectedRecipients.length} numbers selected from the audience group.`}
+              </p>
+            </div>
+
             <div className="flex flex-wrap gap-2">
-              {MESSAGE_TEMPLATES.map((t) => (
-                <button
-                  key={t.label}
-                  onClick={() => setMessage(t.text)}
-                  className="px-2.5 py-1 text-[10px] font-bold bg-gray-50 hover:bg-blue-50 hover:text-blue-600 border border-gray-100 hover:border-blue-200 text-gray-600 rounded-md transition-all cursor-pointer"
-                >
-                  {t.label}
-                </button>
-              ))}
+              <button className="h-9 cursor-pointer rounded-lg border border-gray-300 px-3 text-xs font-medium text-gray-700 hover:bg-gray-100">Template: Fire Alert</button>
+              <button className="h-9 cursor-pointer rounded-lg border border-gray-300 px-3 text-xs font-medium text-gray-700 hover:bg-gray-100">Template: All Clear</button>
+              <button className="h-9 cursor-pointer rounded-lg border border-gray-300 px-3 text-xs font-medium text-gray-700 hover:bg-gray-100">Template: Medical</button>
             </div>
+
+            {error && <p className="text-xs text-red-600">{error}</p>}
+
+            <button onClick={handleBroadcast} disabled={isSending} className="inline-flex h-10 cursor-pointer items-center justify-center gap-1 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
+              <Send size={14} /> {isSending ? "Broadcasting..." : "Broadcast Message"}
+            </button>
+          </div>
+        </article>
+
+        <article className="surface-card p-4 xl:col-span-7">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-900">Delivery Logs</h2>
+            <Select options={statusOptions} value={status} onChange={(value) => { setStatus(value as LogStatus); setPage(1); }} className="w-40" />
           </div>
 
-          {/* Message Composer */}
-          <div className="space-y-2 flex-1 flex flex-col">
-            <div className="flex justify-between">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Message</label>
-              <span className={cn(
-                "text-[10px] font-bold",
-                message.length > 160 ? "text-red-500" : "text-gray-400"
-              )}>
-                {message.length}/160
-              </span>
-            </div>
-            <textarea
-              className="flex-1 min-h-[120px] w-full p-4 text-sm font-medium text-gray-800 bg-gray-50 border border-transparent hover:border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-400 rounded-xl transition-all resize-none placeholder:text-gray-300 outline-none"
-              placeholder="Type your broadcast message here..."
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              disabled={isSending}
-            />
-          </div>
-
-          {/* Recipient Summary */}
-          <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-sm">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-blue-800">Sending to:</span>
-              <span className="font-bold text-blue-600">{selectedTarget.count} recipients</span>
-            </div>
-            <div className="text-[11px] text-blue-600 mt-0.5">{selectedTarget.label}</div>
-          </div>
-
-          {/* Send Button */}
-          <button
-            onClick={handleSend}
-            disabled={isSending || !message.trim()}
-            className={cn(
-              "w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer uppercase tracking-widest",
-              priority === "critical" && !isSending
-                ? "bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-100"
-                : priority === "urgent" && !isSending
-                ? "bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-100"
-                : !isSending
-                ? "bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-100"
-                : "bg-gray-100 text-gray-400 cursor-not-allowed"
-            )}
-          >
-            {isSending ? (
-              <>
-                <RefreshCw size={16} className="animate-spin" />
-                Transmitting to {selectedTarget.count} recipients...
-              </>
-            ) : (
-              <>
-                <Send size={16} />
-                Send {priority !== "normal" && <span className="opacity-80">({priority})</span>}
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Delivery Log */}
-        <div className="lg:col-span-2 card-premium overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <Clock size={15} className="text-blue-600" />
-              Delivery Log
-            </h2>
-            <div className="flex items-center gap-2">
-              {(["all", "sent", "sending", "queued", "partial", "failed"] as (SMSStatus | "all")[]).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setFilterStatus(s)}
-                  className={cn(
-                    "px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all cursor-pointer border",
-                    filterStatus === s
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : "bg-white text-gray-500 border-gray-100 hover:border-gray-200"
-                  )}
-                >
-                  {s}
-                </button>
-              ))}
-              <button
-                onClick={() => dispatch(clearSMSLogs())}
-                className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-all cursor-pointer"
-                title="Clear logs"
-              >
-                <Trash2 size={15} />
-              </button>
-            </div>
-          </div>
-
-          {filteredLogs.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center py-20 text-center gap-3">
-              <div className="p-4 bg-gray-50 rounded-full">
-                <MessageSquare size={28} className="text-gray-300" />
-              </div>
-              <p className="text-sm font-semibold text-gray-400">No broadcasts yet</p>
-              <p className="text-xs text-gray-300">Sent messages will appear here with delivery tracking.</p>
-            </div>
-          ) : (
-            <div className="overflow-auto flex-1 custom-scrollbar">
-              <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 bg-white z-10">
-                  <tr className="border-b border-gray-50">
-                    <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Time</th>
-                    <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Target</th>
-                    <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Message</th>
-                    <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Delivered</th>
-                    <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Failed</th>
-                    <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">Status</th>
+          {mode === "table" ? (
+            <div className="overflow-hidden rounded-lg border border-gray-200">
+              <table className="hidden w-full text-sm md:table">
+                <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left">ID</th>
+                    <th className="px-4 py-2.5 text-left">Audience</th>
+                    <th className="px-4 py-2.5 text-left">Message</th>
+                    <th className="px-4 py-2.5 text-center">Recipients</th>
+                    <th className="px-4 py-2.5 text-center">Success</th>
+                    <th className="px-4 py-2.5 text-center">Failed</th>
+                    <th className="px-4 py-2.5 text-right">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filteredLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-gray-50 transition-colors group animate-in fade-in duration-300">
-                      <td className="px-6 py-4">
-                        <div className="text-[11px] font-bold text-gray-500 font-mono">
-                          {new Date(log.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                        </div>
-                        <div className="text-[9px] text-gray-300 mt-0.5 uppercase tracking-wider">
-                          {new Date(log.timestamp).toLocaleDateString([], { month: "short", day: "numeric" })}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="font-semibold text-sm text-gray-800">{log.targetLabel}</div>
-                        <div className={cn(
-                          "inline-block text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider mt-0.5",
-                          log.priority === "critical" ? "bg-red-100 text-red-700" :
-                          log.priority === "urgent" ? "bg-amber-100 text-amber-700" :
-                          "bg-gray-100 text-gray-500"
-                        )}>
-                          {log.priority}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 max-w-[220px]">
-                        <p className="text-xs text-gray-600 font-medium line-clamp-2 leading-relaxed">{log.message}</p>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <div className="text-sm font-bold text-emerald-600">{log.successCount}</div>
-                        <div className="text-[10px] text-gray-400">/ {log.recipientCount}</div>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <div className={cn("text-sm font-bold", log.failedCount > 0 ? "text-red-500" : "text-gray-300")}>
-                          {log.failedCount}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <StatusBadge status={log.status} />
-                        {/* Progress bar for sending */}
-                        {log.status === "sending" && (
-                          <div className="mt-1.5 h-1 bg-gray-100 rounded-full overflow-hidden w-full">
-                            <div
-                              className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                              style={{ width: `${Math.round(((log.successCount + log.failedCount) / log.recipientCount) * 100)}%` }}
-                            />
-                          </div>
-                        )}
-                      </td>
+                <tbody>
+                  {data.map((row) => (
+                    <tr key={row.id} className="border-t border-gray-100">
+                      <td className="px-4 py-2.5 text-gray-500">{row.id}</td>
+                      <td className="px-4 py-2.5 font-medium text-gray-900">{row.targetLabel}</td>
+                      <td className="px-4 py-2.5 text-gray-700">{row.message}</td>
+                      <td className="px-4 py-2.5 text-center text-gray-900">{row.recipientCount}</td>
+                      <td className="px-4 py-2.5 text-center text-gray-700">{row.successCount}</td>
+                      <td className="px-4 py-2.5 text-center text-gray-700">{row.failedCount}</td>
+                      <td className="px-4 py-2.5 text-right"><span className={cn("rounded-md px-2 py-1 text-xs font-semibold capitalize", deliveryClass[row.status])}>{row.status}</span></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+
+              <div className="grid gap-3 p-3 md:hidden">
+                {data.map((row) => (
+                  <article key={row.id} className="rounded-lg border border-gray-200 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-gray-500">{row.id}</p>
+                      <span className={cn("rounded-md px-2 py-1 text-xs font-semibold capitalize", deliveryClass[row.status])}>{row.status}</span>
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-gray-900">{row.targetLabel}</p>
+                    <p className="mt-1 text-sm text-gray-700">{row.message}</p>
+                    <p className="mt-2 text-xs text-gray-500">{row.timestamp} | Sent {row.successCount} | Failed {row.failedCount} | Total {row.recipientCount}</p>
+                  </article>
+                ))}
+              </div>
             </div>
+          ) : (
+            <ol className="space-y-3">
+              {data.map((row) => (
+                <li key={row.id} className="rounded-lg border border-gray-200 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{row.targetLabel}</p>
+                      <p className="mt-1 text-sm text-gray-700">{row.message}</p>
+                      <p className="mt-2 text-xs text-gray-500">{row.id}</p>
+                    </div>
+                    <div className="text-right text-xs text-gray-500">
+                      <p className="inline-flex items-center gap-1"><Clock3 size={12} /> {row.timestamp}</p>
+                      <p className="mt-1 inline-flex items-center gap-1"><Timer size={12} /> {row.successCount} / {row.recipientCount}</p>
+                      <p className="mt-1"><span className={cn("rounded-md px-2 py-1 font-semibold capitalize", deliveryClass[row.status])}>{row.status}</span></p>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ol>
           )}
-        </div>
-      </div>
+
+          <div className="mt-3 flex items-center justify-between">
+            <p className="inline-flex items-center gap-1 text-xs text-gray-500"><Filter size={13} /> {filtered.length} results</p>
+            <div className="inline-flex items-center gap-2">
+              <button disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="h-8 cursor-pointer rounded-lg border border-gray-300 px-3 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50">Prev</button>
+              <span className="text-xs text-gray-500">Page {safePage} / {pageCount}</span>
+              <button disabled={safePage >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))} className="h-8 cursor-pointer rounded-lg border border-gray-300 px-3 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50">Next</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <div className="inline-flex items-center gap-1 text-xs text-gray-500"><MessageSquareText size={13} /> AR hotel view can be connected here later for contextual broadcast targeting.</div>
     </div>
   );
 }

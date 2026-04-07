@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppSelector } from "@/store/hooks";
-import { ListTodo, Activity, Download, History, Filter } from "lucide-react";
+import { ListTodo, Download, History, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function AlertTimeline() {

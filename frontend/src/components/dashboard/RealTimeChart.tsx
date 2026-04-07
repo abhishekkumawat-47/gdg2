@@ -1,6 +1,5 @@
 "use client";
 
-import { useAppSelector } from "@/store/hooks";
 import { 
   AreaChart, 
   Area, 

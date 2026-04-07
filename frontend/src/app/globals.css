@@ -3,28 +3,41 @@
 @layer base {
   :root {
     --background: #ffffff;
-    --foreground: #111827;
-    --border: #e5e7eb;
+    --foreground: #0b1220;
+    --border: #dbe3ef;
     
-    --primary: #2563eb;
+    --primary: #1a73e8;
     --primary-foreground: #ffffff;
     
-    --muted: #6b7280;
-    --muted-foreground: #9ca3af;
+    --muted: #4b5563;
+    --muted-foreground: #6b7280;
     
     --card: #ffffff;
-    --card-foreground: #111827;
+    --card-foreground: #0b1220;
     
-    --accent: #f3f4f6;
-    --accent-foreground: #111827;
+    --accent: #f5f8ff;
+    --accent-foreground: #0b1220;
   }
 
   body {
-    background-color: var(--background);
+    background:
+      radial-gradient(circle at 92% 4%, #eaf2ff 0%, rgba(234, 242, 255, 0) 34%),
+      linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
     color: var(--foreground);
     @apply antialiased selection:bg-blue-100 selection:text-blue-900;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-manrope), "Segoe UI", system-ui, -apple-system, sans-serif;
     letter-spacing: -0.011em;
+  }
+
+  a,
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -52,7 +65,11 @@
   .fade-in { @apply animate-fade-in; }
 
   .card-premium {
-    @apply bg-white rounded-xl border border-gray-100 shadow-[0_1px_3px_rgb(0,0,0,0.05),0_1px_2px_rgb(0,0,0,0.06)] transition-all duration-200 hover:shadow-[0_4px_6px_-1px_rgb(0,0,0,0.05),0_2px_4px_-1px_rgb(0,0,0,0.03)];
+    @apply bg-white rounded-xl border border-blue-100 shadow-[0_2px_10px_rgb(7,28,71,0.06)] transition-all duration-200 hover:shadow-[0_8px_22px_rgb(7,28,71,0.12)];
+  }
+
+  .surface-card {
+    @apply rounded-xl border border-gray-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)];
   }
 
   .interactive-element {

@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "secretpassword")
 
+    # Supabase / Postgres Config for future auth + app data
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
+    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    SUPABASE_DB_URL: str = os.getenv("SUPABASE_DB_URL", "")
+    AUTH_PROVIDER: str = os.getenv("AUTH_PROVIDER", "supabase")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+
     # Twilio SMS Config
     TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
     TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")

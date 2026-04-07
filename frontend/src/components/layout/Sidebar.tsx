@@ -1,114 +1,108 @@
 "use client";
 
+import { useMemo } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { toggleSidebar } from "@/store/slices/systemSlice";
+import { cn } from "@/lib/utils";
+import { SITE_LOGO_PATH } from "@/lib/branding";
 import {
-  LayoutDashboard,
-  AlertCircle,
-  Users,
-  MessageSquare,
-  BarChart3,
-  Settings,
+  AlertTriangle,
   ChevronLeft,
-  ShieldAlert,
+  House,
+  MessageSquareText,
+  Settings,
   Shield,
+  Users,
   Wrench,
 } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
 
 const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, href: "/" },
-  { label: "Live Alerts", icon: AlertCircle, href: "/alerts" },
-  { label: "Guests & Staff", icon: Users, href: "/people" },
-  { label: "SMS Broadcast", icon: MessageSquare, href: "/sms" },
-  { label: "Security Ops", icon: Shield, href: "/security" },
-  { label: "Maintenance", icon: Wrench, href: "/maintenance" },
-  { label: "Reports", icon: BarChart3, href: "/reports" },
-  { label: "Settings", icon: Settings, href: "/settings" },
-];
+  { label: "Home", icon: House, href: "/", roles: ["admin", "security", "staff", "maintenance"] },
+  { label: "Alerts", icon: AlertTriangle, href: "/alerts", roles: ["admin", "security", "staff", "maintenance"] },
+  { label: "People", icon: Users, href: "/people", roles: ["admin", "security", "staff", "maintenance"] },
+  { label: "SMS", icon: MessageSquareText, href: "/sms", roles: ["admin", "security"] },
+  { label: "Security", icon: Shield, href: "/security", roles: ["admin", "security"] },
+  { label: "Maintenance", icon: Wrench, href: "/maintenance", roles: ["admin", "maintenance"] },
+  { label: "Settings", icon: Settings, href: "/settings", roles: ["admin", "security", "staff", "maintenance"] },
+] as const;
 
 export function Sidebar() {
   const pathname = usePathname();
   const dispatch = useAppDispatch();
   const isSidebarCollapsed = useAppSelector((state) => state.system.isSidebarCollapsed);
+  const currentRole = useAppSelector((state) => state.auth.profile?.role ?? state.system.currentUserRole);
+
+  const activeRoot = useMemo(() => {
+    const match = navItems.find((item) => item.href !== "/" && pathname.startsWith(item.href));
+    return match?.href || "/";
+  }, [pathname]);
+
+  const visibleItems = useMemo(
+    () => navItems.filter((item) => item.roles.includes(currentRole)),
+    [currentRole]
+  );
 
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 h-full bg-white border-r border-gray-100 z-50 flex flex-col transition-all duration-300 ease-in-out",
-        isSidebarCollapsed ? "w-[64px]" : "w-56"
+        "fixed left-0 top-0 z-50 h-full border-r border-gray-200 bg-white transition-all duration-200 w-[72px]",
+        !isSidebarCollapsed && "md:w-[240px]"
       )}
+      aria-label="Primary"
     >
-      {/* Branding */}
-      <div className="h-16 flex items-center px-4 border-b border-gray-50 shrink-0">
-        <div className="flex items-center gap-3 overflow-hidden">
-          <div className="shrink-0 p-1.5 bg-blue-600 rounded-full shadow-sm">
-            <ShieldAlert size={20} className="text-white" />
+      <div className="flex h-16 items-center border-b border-gray-200 px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="relative h-8 w-8 overflow-hidden rounded-lg border border-blue-100 bg-white">
+            <Image src={SITE_LOGO_PATH} alt="CrisisControl" fill className="object-cover" sizes="32px" />
           </div>
           {!isSidebarCollapsed && (
-            <span className="text-[17px] font-bold text-gray-900 tracking-tight whitespace-nowrap overflow-hidden">
-              Crisis<span className="text-blue-600">Command</span>
-            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-gray-900 max-md:hidden">CrisisControl</p>
+              <p className="truncate text-xs text-gray-500 max-md:hidden">Crisis Response Dashboard</p>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 py-4 px-2 space-y-0.5 overflow-y-auto overflow-x-hidden custom-scrollbar">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href;
+      <nav className="space-y-1 px-2 py-3">
+        {visibleItems.map((item) => {
+          const isActive = item.href === activeRoot;
           return (
             <Link
               key={item.href}
               href={item.href}
-              title={isSidebarCollapsed ? item.label : undefined}
+              title={item.label}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group relative",
-                isSidebarCollapsed && "justify-center",
+                "group flex h-10 cursor-pointer items-center rounded-lg px-3 text-sm font-medium transition-colors",
+                "justify-center px-0 md:justify-start md:px-3",
                 isActive
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+                  ? "bg-blue-50 text-blue-800"
+                  : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
               )}
             >
               <item.icon
+                size={18}
                 className={cn(
-                  "shrink-0 transition-colors",
-                  isActive ? "text-blue-600" : "text-gray-400 group-hover:text-gray-600"
+                  "shrink-0",
+                  isActive ? "text-blue-700" : "text-gray-500 group-hover:text-gray-700"
                 )}
-                size={20}
               />
-              {!isSidebarCollapsed && (
-                <>
-                  <span className="flex-1 truncate">{item.label}</span>
-                </>
-              )}
-              {/* Active indicator for collapsed */}
-              {isSidebarCollapsed && isActive && (
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-blue-600 rounded-l-full" />
-              )}
+              {!isSidebarCollapsed && <span className="ml-3 truncate max-md:hidden">{item.label}</span>}
             </Link>
           );
         })}
       </nav>
 
-      {/* Collapse Toggle */}
-      <div className="p-3 border-t border-gray-50 shrink-0">
+      <div className="absolute bottom-3 left-0 w-full px-2">
         <button
           onClick={() => dispatch(toggleSidebar())}
-          className={cn(
-            "w-full flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all cursor-pointer",
-          )}
-          title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="flex h-10 w-full cursor-pointer items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100"
+          aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          <ChevronLeft
-            className={cn(
-              "transition-transform duration-300",
-              isSidebarCollapsed && "rotate-180"
-            )}
-            size={20}
-          />
+          <ChevronLeft className={cn("transition-transform", isSidebarCollapsed && "rotate-180")} size={18} />
         </button>
       </div>
     </aside>

@@ -1,171 +1,155 @@
 "use client";
 
-import { useState } from "react";
-import {
-  AlertCircle, CheckCircle2, Clock, Flame, Users, ShieldAlert,
-  Stethoscope, Filter, Download, RefreshCw
-} from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, Filter, Search, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Alert } from "@/types";
 
-// Mock enriched alerts
-const allAlerts: Alert[] = [
-  { id: "1", type: "fire",      severity: "critical", location: "Room 305",     floor: "Floor 3", status: "active",       message: "Smoke detector triggered. Possible fire in server room area.", timestamp: new Date(Date.now() - 2 * 60000).toISOString(),  actionRequired: "Evacuate floor, alert fire dept.", acknowledgedBy: undefined },
-  { id: "2", type: "crowd",     severity: "high",     location: "Main Lobby",   floor: "Floor 1", status: "acknowledged", message: "Crowd density exceeded safe threshold (>90% capacity).",     timestamp: new Date(Date.now() - 8 * 60000).toISOString(),  actionRequired: "Deploy crowd control staff.",     acknowledgedBy: "John (Security)" },
-  { id: "3", type: "security",  severity: "medium",   location: "Gate B",       floor: "Ground",  status: "resolved",     message: "Unauthorized access attempt detected at Gate B.",            timestamp: new Date(Date.now() - 22 * 60000).toISOString(), actionRequired: "Review CCTV, log incident.",       acknowledgedBy: "Sarah (Security)" },
-  { id: "4", type: "medical",   severity: "high",     location: "Canteen",      floor: "Floor 2", status: "active",       message: "Guest reported unconscious near canteen seating area.",       timestamp: new Date(Date.now() - 4 * 60000).toISOString(),  actionRequired: "First aid team dispatched.",       acknowledgedBy: undefined },
-  { id: "5", type: "evacuation",severity: "critical", location: "Hall A",       floor: "Floor 3", status: "active",       message: "Evacuation order in effect for Hall A.",                     timestamp: new Date(Date.now() - 1 * 60000).toISOString(),  actionRequired: "Guide guests to EXIT A.",          acknowledgedBy: undefined },
-  { id: "6", type: "fire",      severity: "low",      location: "Break Room",   floor: "Floor 2", status: "resolved",     message: "Minor smoke from microwave — false alarm.",                  timestamp: new Date(Date.now() - 45 * 60000).toISOString(), actionRequired: "Ventilate area, reset detector.",  acknowledgedBy: "Mike (Maintenance)" },
-];
+type Severity = "low" | "medium" | "high" | "critical";
+type Status = "active" | "acknowledged" | "resolved";
 
-const SEVERITY_CONFIG = {
-  critical: { label: "Critical", cls: "bg-red-600 text-white" },
-  high:     { label: "High",     cls: "bg-red-100 text-red-700 border border-red-200" },
-  medium:   { label: "Medium",   cls: "bg-amber-100 text-amber-700 border border-amber-200" },
-  low:      { label: "Low",      cls: "bg-gray-100 text-gray-600 border border-gray-200" },
-};
-
-const STATUS_CONFIG = {
-  active:       { icon: <AlertCircle size={13} />,  label: "Active",       cls: "text-red-600 bg-red-50 border-red-200" },
-  acknowledged: { icon: <Clock size={13} />,         label: "Acknowledged", cls: "text-amber-700 bg-amber-50 border-amber-200" },
-  resolved:     { icon: <CheckCircle2 size={13} />,  label: "Resolved",     cls: "text-emerald-700 bg-emerald-50 border-emerald-200" },
-};
-
-function timeAgo(ts: string): string {
-  const diff = (Date.now() - new Date(ts).getTime()) / 1000;
-  if (diff < 60) return `${Math.round(diff)}s ago`;
-  if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
-  return `${Math.round(diff / 3600)}h ago`;
+interface AlertRow {
+  id: string;
+  title: string;
+  severity: Severity;
+  status: Status;
+  location: string;
+  createdAt: string;
+  details: string;
 }
 
+const rows: AlertRow[] = [
+  { id: "A-103", title: "Smoke sensor triggered", severity: "critical", status: "active", location: "Floor 3 - Room 305", createdAt: "14:22", details: "Immediate evacuation protocol activated for adjacent zones." },
+  { id: "A-102", title: "Crowd density threshold exceeded", severity: "high", status: "acknowledged", location: "Main Lobby", createdAt: "14:10", details: "Security deployed to redistribute entry lines." },
+  { id: "A-101", title: "Unauthorized badge attempt", severity: "medium", status: "resolved", location: "Gate B", createdAt: "13:58", details: "Attempt blocked and incident logged to audit trail." },
+  { id: "A-100", title: "CCTV signal intermittent", severity: "low", status: "resolved", location: "Parking Level", createdAt: "13:31", details: "Connectivity normalized after network failover." },
+];
+
+const badge = {
+  critical: "bg-gray-900 text-white",
+  high: "bg-gray-100 text-gray-800",
+  medium: "bg-blue-50 text-blue-700",
+  low: "bg-gray-50 text-gray-600",
+  active: "bg-blue-50 text-blue-700",
+  acknowledged: "bg-gray-100 text-gray-700",
+  resolved: "bg-gray-50 text-gray-600",
+} as const;
+
 export default function AlertsPage() {
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [severity, setSeverity] = useState<Severity | "all">("all");
+  const [status, setStatus] = useState<Status | "all">("all");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<"newest" | "severity">("newest");
+  const [expanded, setExpanded] = useState<string | null>(null);
 
-  const filtered = allAlerts.filter((a) => {
-    const typeOk = typeFilter === "all" || a.type === typeFilter;
-    const statusOk = statusFilter === "all" || a.status === statusFilter;
-    return typeOk && statusOk;
-  });
+  const data = useMemo(() => {
+    const result = rows.filter((row) => {
+      const severityOk = severity === "all" || row.severity === severity;
+      const statusOk = status === "all" || row.status === status;
+      const text = `${row.title} ${row.location} ${row.id}`.toLowerCase();
+      return severityOk && statusOk && text.includes(search.toLowerCase());
+    });
 
-  const active = allAlerts.filter((a) => a.status === "active").length;
-  const acknowledged = allAlerts.filter((a) => a.status === "acknowledged").length;
-  const resolved = allAlerts.filter((a) => a.status === "resolved").length;
+    if (sort === "severity") {
+      const rank: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+      return [...result].sort((a, b) => rank[a.severity] - rank[b.severity]);
+    }
+    return result;
+  }, [search, severity, sort, status]);
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Live Alerts Center</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Real-time monitoring of all active incidents across the facility.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button className="flex items-center gap-2 px-3 py-2 text-gray-600 bg-white border border-gray-100 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-all cursor-pointer shadow-sm">
-            <Download size={15} /> Export
-          </button>
-          <button className="p-2 text-gray-400 hover:text-blue-600 bg-white border border-gray-100 rounded-lg transition-all cursor-pointer shadow-sm">
-            <RefreshCw size={16} />
-          </button>
-        </div>
-      </div>
-
-      {/* KPI Row */}
-      <div className="grid grid-cols-4 gap-10">
-        {[
-          { label: "Active", value: active, icon: <AlertCircle size={18} className="text-red-600" />, color: "red" },
-          { label: "Acknowledged", value: acknowledged, icon: <Clock size={18} className="text-amber-600" />, color: "amber" },
-          { label: "Resolved Today", value: resolved, icon: <CheckCircle2 size={18} className="text-emerald-600" />, color: "emerald" },
-        ].map((k) => (
-          <div key={k.label} className="card-premium justify-center items-center p-5 flex gap-4">
-              <div className="text-2xl font-bold text-gray-900">{k.value}</div>
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{k.label}</div>
+    <div className="mx-auto max-w-[1320px] space-y-5 pb-20">
+      <section className="surface-card p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Alerts</p>
+            <h1 className="mt-1 text-2xl font-semibold text-gray-900">Incident Feed</h1>
+            <p className="mt-2 text-sm text-gray-600">Filter, prioritize, and inspect all alerts in one compact view.</p>
           </div>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Filter size={14} className="text-gray-400" />
-        <div className="flex gap-2">
-          {["all", "fire", "crowd", "security", "medical", "evacuation"].map((t) => (
-            <button
-              key={t}
-              onClick={() => setTypeFilter(t)}
-              className={cn(
-                "px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all cursor-pointer",
-                typeFilter === t ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-500 border-gray-100 hover:border-gray-200"
-              )}
-            >
-              {t}
+          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:w-auto lg:grid-cols-4">
+            <label className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by title or id" className="h-9 w-full rounded-lg border border-gray-300 pl-9 pr-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none" />
+            </label>
+            <select value={severity} onChange={(e) => setSeverity(e.target.value as Severity | "all")} className="h-9 rounded-lg border border-gray-300 px-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none">
+              <option value="all">All severity</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+            </select>
+            <select value={status} onChange={(e) => setStatus(e.target.value as Status | "all")} className="h-9 rounded-lg border border-gray-300 px-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none">
+              <option value="all">All status</option><option value="active">Active</option><option value="acknowledged">Acknowledged</option><option value="resolved">Resolved</option>
+            </select>
+            <button onClick={() => setSort((v) => (v === "newest" ? "severity" : "newest"))} className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-100">
+              <SlidersHorizontal size={14} /> Sort: {sort}
             </button>
-          ))}
+          </div>
         </div>
-        <div className="h-5 w-[2px] bg-gray-400" />
-        <div className="flex gap-2">
-          {["all", "active", "acknowledged", "resolved"].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={cn(
-                "px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all cursor-pointer",
-                statusFilter === s ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-500 border-gray-100 hover:border-gray-200"
-              )}
-            >
-              {s}
-            </button>
-          ))}
+      </section>
+
+      <section className="surface-card overflow-hidden">
+        <div className="hidden md:block">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+              <tr>
+                <th className="px-4 py-3 text-left">Alert</th>
+                <th className="px-4 py-3 text-left">Severity</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Location</th>
+                <th className="px-4 py-3 text-left">Time</th>
+                <th className="px-4 py-3 text-right">Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row) => (
+                <Fragment key={row.id}>
+                  <tr className="border-t border-gray-100">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-900">{row.title}</p>
+                      <p className="text-xs text-gray-500">{row.id}</p>
+                    </td>
+                    <td className="px-4 py-3"><span className={cn("rounded-md px-2 py-1 text-xs font-semibold capitalize", badge[row.severity])}>{row.severity}</span></td>
+                    <td className="px-4 py-3"><span className={cn("rounded-md px-2 py-1 text-xs font-semibold capitalize", badge[row.status])}>{row.status}</span></td>
+                    <td className="px-4 py-3 text-gray-700">{row.location}</td>
+                    <td className="px-4 py-3 text-gray-600">{row.createdAt}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button onClick={() => setExpanded((v) => (v === row.id ? null : row.id))} className="inline-flex items-center gap-1 text-sm font-medium text-blue-700 hover:text-blue-800">
+                        {expanded === row.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />} View
+                      </button>
+                    </td>
+                  </tr>
+                  {expanded === row.id && (
+                    <tr className="bg-gray-50">
+                      <td colSpan={6} className="px-4 py-3 text-sm text-gray-700">{row.details}</td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
 
-      {/* Alert Feed */}
-      <div className="space-y-3">
-        {filtered.map((alert) => (
-          <div
-            key={alert.id}
-            className={cn(
-              "card-premium p-5 flex gap-4 transition-all animate-in fade-in duration-300",
-              alert.status === "active" && alert.severity === "critical" && "border-l-4 border-l-red-500"
-            )}
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className={cn("text-[10px] font-bold italic px-2 py-0.5 rounded-md tracking-widest", SEVERITY_CONFIG[alert.severity].cls)}>
-                  {SEVERITY_CONFIG[alert.severity].label}
-                </span>
-                <span className="text-sm font-bold text-gray-900">{alert.location}</span>
-                <span className="text-xs text-gray-400">{alert.floor}</span>
-                <span className="ml-auto text-[10px] font-medium text-gray-400">{timeAgo(alert.timestamp)}</span>
-              </div>
-              <p className="text-sm text-gray-700 font-medium mb-1.5">{alert.message}</p>
-              <div className="flex items-center gap-3 text-xs text-gray-500">
-                <span className="font-semibold">Action:</span>
-                <span className="italic">{alert.actionRequired}</span>
-                {alert.acknowledgedBy && (
-                  <span className="text-blue-600 font-semibold">Ack by: {alert.acknowledgedBy}</span>
-                )}
-              </div>
-            </div>
-
-            <div className="shrink-0 flex flex-col items-end gap-2">
-              <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wider", STATUS_CONFIG[alert.status].cls)}>
-                {STATUS_CONFIG[alert.status].icon}
-                {STATUS_CONFIG[alert.status].label}
-              </div>
-              {alert.status === "active" && (
-                <div className="flex gap-2">
-                  <button className="px-3 py-1.5 text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 transition-all cursor-pointer">
-                    Acknowledge
-                  </button>
-                  <button className="px-3 py-1.5 text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-all cursor-pointer">
-                    Resolve
-                  </button>
+        <div className="space-y-3 p-3 md:hidden">
+          {data.map((row) => (
+            <article key={row.id} className="rounded-lg border border-gray-200 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{row.title}</p>
+                  <p className="text-xs text-gray-500">{row.id}</p>
                 </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+                <span className="text-xs text-gray-500">{row.createdAt}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                <span className={cn("rounded-md px-2 py-1 font-semibold capitalize", badge[row.severity])}>{row.severity}</span>
+                <span className={cn("rounded-md px-2 py-1 font-semibold capitalize", badge[row.status])}>{row.status}</span>
+              </div>
+              <p className="mt-2 text-xs text-gray-600">{row.location}</p>
+              <p className="mt-2 text-sm text-gray-700">{row.details}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="flex items-center justify-between text-xs text-gray-500">
+        <p>{data.length} alerts shown</p>
+        <span className="inline-flex items-center gap-1"><Filter size={13} /> Filters applied in real time</span>
+      </section>
     </div>
   );
 }

@@ -1,9 +1,8 @@
 "use client";
 
-import { useAppSelector } from "@/store/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEffect, useState } from "react";
-import { Users, LogIn, ArrowRight, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { Users, LogIn, ShieldAlert, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const funnelSteps = [
